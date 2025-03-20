@@ -17,6 +17,39 @@ export const generateConversationId = (): string => {
   return `conv_${Date.now()}_${Math.random().toString(36).substring(2, 9)}`;
 };
 
+// Define the base interface for AI generation strategies
+export interface AIGenerationStrategy {
+  generate(prompt: string, context: AIGenerationContext): Promise<AIResponse[]>;
+}
+
+// Define the context that will be passed to generation strategies
+export interface AIGenerationContext {
+  currentContent?: string;
+  recipients?: string[];
+  conversationId?: string;
+  userContext?: UserContext;
+  additionalContext?: Record<string, any>; // For RAG and other extensions
+}
+
+// Define the base class for email generation
+export abstract class BaseEmailGenerator implements AIGenerationStrategy {
+  protected abstract generateWithStrategy(prompt: string, context: AIGenerationContext): Promise<AIResponse[]>;
+  
+  async generate(prompt: string, context: AIGenerationContext): Promise<AIResponse[]> {
+    // Add any common preprocessing here
+    return this.generateWithStrategy(prompt, context);
+  }
+}
+
+// Define the interface for RAG providers
+export interface RAGProvider {
+  retrieveRelevantContext(prompt: string, context: AIGenerationContext): Promise<Record<string, any>>;
+}
+
+// Define the interface for prompt modifiers
+export interface PromptModifier {
+  modifyPrompt(prompt: string, context: AIGenerationContext): string;
+}
 
 export async function generateEmailContent(
   prompt: string,

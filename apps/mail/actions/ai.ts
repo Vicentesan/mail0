@@ -1,8 +1,13 @@
 // The brain.ts file in /actions should replace this file once ready.
 'use server';
 
-import { AIResponse, generateEmailContent, UserContext } from "@/lib/ai";
+import { AIResponse, UserContext } from "@/lib/ai";
 import { JSONContent } from "novel";
+import { EmailGenerator } from "@/lib/email-generator";
+import { EmailHistoryProvider } from "@/lib/rag-providers/email-history-provider";
+import { ToneModifier } from "@/lib/prompt-modifiers/tone-modifier";
+import { ToneInferenceProvider } from "@/lib/rag-providers/tone-inference-provider";
+import { EmailTone } from "@/lib/types/email-tone";
 
 interface AIEmailResponse {
   content: string;
@@ -10,8 +15,12 @@ interface AIEmailResponse {
   type: 'email' | 'question' | 'system';
 }
 
-// Shared conversation history store
-const conversationHistories: Record<string, {role: 'user' | 'assistant' | 'system', content: string}[]> = {};
+// Create a singleton instance of the email generator
+const emailGenerator = new EmailGenerator(process.env.OPENAI_API_KEY || '');
+
+// Initialize with default providers and modifiers
+emailGenerator.addRAGProvider(new EmailHistoryProvider());
+emailGenerator.addRAGProvider(new ToneInferenceProvider());
 
 export async function generateAIEmailContent({
   prompt,
@@ -29,7 +38,12 @@ export async function generateAIEmailContent({
   userContext?: UserContext;
 }): Promise<AIEmailResponse> {
   try {
-    const responses = await generateEmailContent(prompt, currentContent, to, conversationId, userContext);
+    const responses = await emailGenerator.generate(prompt, {
+      currentContent,
+      recipients: to,
+      conversationId,
+      userContext
+    });
     
     const questionResponse = responses.find(r => r.type === 'question');
     if (questionResponse) {
@@ -70,26 +84,37 @@ export async function generateAIQuickReply(
   userContext?: UserContext
 ): Promise<AIEmailResponse[]> {
   try {
-    const responseStyles = [
-      { style: 'Professional', prompt: 'Generate a brief, professional reply: ' },
-      { style: 'Friendly', prompt: 'Generate a brief, warm and friendly reply: ' },
-      { style: 'Concise', prompt: 'Generate an extremely concise reply: ' }
-    ] as const;
+    // First, get the inferred tones from the context
+    const toneProvider = new ToneInferenceProvider();
+    const toneContext = await toneProvider.retrieveRelevantContext(prompt, {
+      currentContent,
+      recipients,
+      userContext
+    });
 
-    // Generate responses for each style
+    const inferredTones = toneContext.inferredTones as EmailTone[];
+    const toneDescription = toneContext.toneContext as string;
+
+    // Generate responses for each inferred tone
     const allResponses = await Promise.all(
-      responseStyles.map(async ({ style, prompt: stylePrompt }) => {
+      inferredTones.map(async (tone) => {
         const modifiedContext = userContext ? {
           ...userContext,
-          name: userContext.name ? `${userContext.name} (Quick ${style} Reply)` : undefined
+          name: userContext.name ? `${userContext.name} (Quick ${tone} Reply)` : undefined
         } : undefined;
 
-        return generateEmailContent(
-          stylePrompt + prompt,
-          currentContent,
-          recipients,
-          undefined,
-          modifiedContext
+        // Create a temporary generator with the appropriate tone modifier
+        const quickReplyGenerator = new EmailGenerator(process.env.OPENAI_API_KEY || '');
+        quickReplyGenerator.addRAGProvider(new EmailHistoryProvider());
+        quickReplyGenerator.addPromptModifier(new ToneModifier(tone));
+
+        return quickReplyGenerator.generate(
+          `Generate a brief reply that matches the following context: ${toneDescription}\n\n${prompt}`,
+          {
+            currentContent,
+            recipients,
+            userContext: modifiedContext
+          }
         ).catch(() => null);
       })
     );
@@ -111,13 +136,13 @@ export async function generateAIQuickReply(
     const responses = allResponses.flatMap(r => (r || []) as AIResponse[]);
     const emailResponses = responses.filter((r): r is AIResponse => r?.type === 'email');
 
-    // Combine responses with style labels
+    // Combine responses with tone labels
     return emailResponses.map((response, index) => {
-      const style = responseStyles[index]?.style || 'Unknown';
+      const tone = inferredTones[index] || 'Unknown';
       const content = response?.content;
       const formattedContent = content 
-        ? `[${style}]\n\n${content}`
-        : `No ${style.toLowerCase()} response generated.`;
+        ? `[${tone.charAt(0).toUpperCase() + tone.slice(1)}]\n\n${content}`
+        : `No ${tone} response generated.`;
 
       return {
         content: formattedContent,
