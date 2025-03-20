@@ -1,4 +1,4 @@
-interface AIResponse {
+export interface AIResponse {
   id: string;
   content: string;
   type: 'email' | 'question' | 'system';
@@ -6,7 +6,7 @@ interface AIResponse {
 }
 
 // Define user context type
-interface UserContext {
+export interface UserContext {
   name?: string;
   email?: string;
 }
@@ -119,7 +119,7 @@ export async function generateEmailContent(
   }
 }
 
-function formatEmailContent(content: string, prompt: string, recipients?: string[]): string {
+export function formatEmailContent(content: string, prompt: string, recipients?: string[]): string {
   // Remove any "Subject:" line at the beginning
   let formattedContent = content
     .replace(/^Subject:.*?(\n|$)/i, '')
@@ -135,8 +135,7 @@ function formatEmailContent(content: string, prompt: string, recipients?: string
   return formattedContent;
 }
 
-
-function checkIfQuestion(prompt: string): boolean {
+export function checkIfQuestion(prompt: string): boolean {
   const trimmedPrompt = prompt.trim().toLowerCase();
   
   // Check if the prompt ends with a question mark
