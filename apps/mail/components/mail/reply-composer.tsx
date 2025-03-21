@@ -213,10 +213,11 @@ export default function ReplyCompose({ emailData, isOpen, setIsOpen }: ReplyComp
 
   const cancelGeneration = () => {
     if (generationController) {
+      console.log('Explicitly cancelling reply generation');
       generationController.abort();
       setIsGeneratingReply(false);
       setGenerationController(null);
-      toast.info('Reply generation cancelled');
+      // Removed toast notification
     }
   };
 
@@ -317,10 +318,11 @@ export default function ReplyCompose({ emailData, isOpen, setIsOpen }: ReplyComp
   // Handle user typing to cancel generation
   const handleEditorChange = (content: string) => {
     if (isGeneratingReply && generationController) {
+      console.log('User started typing, cancelling ongoing generation');
       generationController.abort();
       setIsGeneratingReply(false);
       setGenerationController(null);
-      toast.info('Reply generation cancelled');
+      // Removed toast notification completely
     }
     setMessageContent(content);
   };
