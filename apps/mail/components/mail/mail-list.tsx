@@ -430,22 +430,6 @@ export const MailList = memo(({ isCompact }: MailListProps) => {
     return <EmptyState folder={folder as FolderType} className="min-h-[90vh] md:min-h-[90vh]" />;
   }
 
-  const rowRenderer = useCallback(
-    //TODO: Add proper typing
-    // @ts-expect-error
-    (props) => (
-      <Thread
-        onClick={handleMailClick}
-        selectMode={getSelectMode()}
-        isCompact={isCompact}
-        sessionData={sessionData}
-        message={props.data}
-        {...props}
-      />
-    ),
-    [handleMailClick, getSelectMode, isCompact, sessionData],
-  );
-
   return (
     <>
       <div
@@ -456,7 +440,14 @@ export const MailList = memo(({ isCompact }: MailListProps) => {
           ref={scrollRef}
           style={{ height: '100%' }}
           totalCount={items.length}
-          itemContent={(index: number, data: InitialThread) => rowRenderer({ index, data })}
+          itemContent={(_: number, data: InitialThread) => <Thread
+            onClick={handleMailClick}
+            selectMode={getSelectMode()}
+            isCompact={isCompact}
+            sessionData={sessionData}
+            message={data}
+            key={data.id}
+          />}
           endReached={handleScroll}
           data={items}
           className="hide-scrollbar"

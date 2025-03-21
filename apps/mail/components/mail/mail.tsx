@@ -119,7 +119,10 @@ export function DemoMailLayout() {
                 <div>
                   <MailCategoryTabs
                     iconsOnly={true}
-                    onCategoryChange={setActiveCategory}
+                    onCategoryChange={(category) => {
+                      setActiveCategory(category);
+                      localStorage.setItem('mailActiveCategory', activeCategory);
+                    }}
                     initialCategory={activeCategory}
                   />
                 </div>
@@ -242,7 +245,7 @@ export function MailLayout() {
     router.push(`/mail/${folder}?${currentParams.toString()}`);
   }, [router, folder, searchParams]);
 
-  useHotKey('/', () => {
+  useHotKey('Meta+F', () => {
     setSearchMode(true);
   });
 
@@ -434,7 +437,6 @@ function BulkSelectActions() {
         setIsLoading(false);
       }),
       {
-        description: `Processing a total of ${mail.bulkSelected.length} threads`,
         loading: 'Unsubscribing...',
         success: 'All done! you will no longer receive emails from these mailing lists.',
         error: 'Something went wrong!',
@@ -499,6 +501,7 @@ function BulkSelectActions() {
 
 const categories = [
   {
+    id:'Primary',
     name: 'common.mailCategories.primary',
     searchValue: '',
     icon: <Inbox className="h-4 w-4" />,
@@ -506,6 +509,7 @@ const categories = [
       'border-0 bg-gray-200 text-gray-700 dark:bg-gray-800/50 dark:text-gray-400 dark:hover:bg-gray-800/70',
   },
   {
+    id:'Important',
     name: 'common.mailCategories.important',
     searchValue: 'is:important',
     icon: <AlertTriangle className="h-4 w-4" />,
@@ -513,6 +517,7 @@ const categories = [
       'border-0 text-amber-800 bg-amber-100 dark:bg-amber-900/20 dark:text-amber-500 dark:hover:bg-amber-900/30',
   },
   {
+    id:'Personal',
     name: 'common.mailCategories.personal',
     searchValue: 'is:personal',
     icon: <User className="h-4 w-4" />,
@@ -520,6 +525,7 @@ const categories = [
       'border-0 text-green-800 bg-green-100 dark:bg-green-900/20 dark:text-green-500 dark:hover:bg-green-900/30',
   },
   {
+    id:'Updates',
     name: 'common.mailCategories.updates',
     searchValue: 'is:updates',
     icon: <Bell className="h-4 w-4" />,
@@ -527,6 +533,7 @@ const categories = [
       'border-0 text-purple-800 bg-purple-100 dark:bg-purple-900/20 dark:text-purple-500 dark:hover:bg-purple-900/30',
   },
   {
+    id:'Promotions',
     name: 'common.mailCategories.promotions',
     searchValue: 'is:promotions',
     icon: <Tag className="h-4 w-4 rotate-90" />,
@@ -550,13 +557,13 @@ function MailCategoryTabs({
   const t = useTranslations();
 
   // Initialize with just the initialCategory or "Primary"
-  const [activeCategory, setActiveCategory] = useState(initialCategory || 'Primary');
+  const [activeCategory, setActiveCategory] = useState('Primary');
 
   // Move localStorage logic to a useEffect
   useEffect(() => {
     // Check localStorage only after initial render
     const savedCategory = localStorage.getItem('mailActiveCategory');
-    if (savedCategory && !initialCategory) {
+    if (savedCategory) {
       setActiveCategory(savedCategory);
     }
   }, [initialCategory]);
@@ -565,13 +572,12 @@ function MailCategoryTabs({
   const activeTabElementRef = useRef<HTMLButtonElement>(null);
 
   const activeTab = useMemo(
-    () => categories.find((cat) => cat.name === activeCategory),
+    () => categories.find((cat) => cat.id === activeCategory),
     [activeCategory],
   );
 
   // Save to localStorage when activeCategory changes
   useEffect(() => {
-    localStorage.setItem('mailActiveCategory', activeCategory);
     if (onCategoryChange) {
       onCategoryChange(activeCategory);
     }
@@ -637,14 +643,15 @@ function MailCategoryTabs({
             <Tooltip>
               <TooltipTrigger asChild>
                 <button
-                  ref={activeCategory === category.name ? activeTabElementRef : null}
-                  data-tab={category.name}
+                  ref={activeCategory === category.id ? activeTabElementRef : null}
+                  data-tab={category.id}
                   onClick={() => {
-                    setActiveCategory(category.name);
+                    setActiveCategory(category.id);
+                    localStorage.setItem('mailActiveCategory', category.id);
                   }}
                   className={cn(
                     'flex h-7 items-center gap-1.5 rounded-full px-2 text-xs font-medium transition-all duration-200',
-                    activeCategory === category.name
+                    activeCategory === category.id
                       ? category.colors
                       : 'text-muted-foreground hover:text-foreground hover:bg-muted/50',
                   )}
@@ -672,11 +679,12 @@ function MailCategoryTabs({
       >
         <ul className="flex justify-center gap-1.5">
           {categories.map((category) => (
-            <li key={category.name}>
+            <li key={category.id}>
               <button
-                data-tab={category.name}
+                data-tab={category.id}
                 onClick={() => {
-                  setActiveCategory(category.name);
+                  setActiveCategory(category.id);
+                  localStorage.setItem('mailActiveCategory', category.id);
                 }}
                 className={cn(
                   'flex h-7 items-center gap-1.5 rounded-full px-2 text-xs font-medium',
