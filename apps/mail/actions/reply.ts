@@ -1,7 +1,15 @@
 import { generateAIEmailContent } from './ai';
 import { ParsedMessage } from '@/types';
+import { authClient } from '@/lib/auth-client';
 
-export async function generateInitialReply(emailData: ParsedMessage[]) {
+export async function generateInitialReply(
+  emailData: ParsedMessage[], 
+  signal?: AbortSignal,
+) {
+  console.log('generateInitialReply called with:', emailData.length, 'emails');
+  const session = await authClient.getSession();
+  const userName = session?.data?.activeConnection?.name || session?.data?.user.name;
+
   let prompt = 'Generate a complete email reply based on this thread:\n\n';
 
   if (emailData[0]?.subject) {
@@ -15,33 +23,40 @@ export async function generateInitialReply(emailData: ParsedMessage[]) {
       prompt += `Email ${index + 1}:\n`;
       prompt += `From: ${email.sender.name} <${email.sender.email}>\n`;
       prompt += `Time: ${email.receivedOn}\n`;
-      prompt += `Content:\n${email.body}\n\n`;
+      prompt += `Content:\n${email.decodedBody || email.body}\n\n`;
     });
 
   prompt += '\nPlease generate a natural and contextual reply that:';
   prompt += '\n1. Addresses key points from previous emails';
   prompt += '\n2. Maintains appropriate tone and formality';
   prompt += '\n3. Includes a suitable greeting and sign-off';
+  prompt += `\n4. Uses the name "${userName}" in the signature`;
 
   const response = await generateAIEmailContent({
     prompt,
     currentContent: '',
+    signal,
   });
 
-  if (!response.content) {
+  if (!response.content) 
     throw new Error('Failed to generate reply content');
-  }
 
-  const paragraphs = response.content.split('\n').map((line) => ({
+  // Remove any ghost suggestions or placeholders
+  const cleanContent = response.content.replace(/\[.*?\]/g, '').trim();
+
+  // Split content into paragraphs and create document structure
+  const paragraphs = cleanContent.split('\n').map(line => ({
     type: 'paragraph',
-    content: line ? [{ type: 'text', text: line }] : [],
+    content: line.trim() ? [{ type: 'text', text: line }] : []
   }));
 
-  return {
+  const result = {
     document: {
       type: 'doc',
       content: paragraphs,
     },
-    plainText: response.content,
+    plainText: cleanContent,
   };
+
+  return result;
 }

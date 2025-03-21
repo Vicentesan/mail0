@@ -1,5 +1,5 @@
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
-import { type Dispatch, type SetStateAction, useEffect, useState } from 'react';
+import { type Dispatch, type SetStateAction, useEffect, useState, useRef, useCallback } from 'react';
 import { UploadedFileIcon } from '@/components/create/uploaded-file-icon';
 import { cleanEmailAddress, cn, truncateFileName } from '@/lib/utils';
 import { ArrowUp, Paperclip, Plus, Reply, X } from 'lucide-react';
@@ -36,17 +36,39 @@ export default function ReplyCompose({ emailData, isOpen, setIsOpen }: ReplyComp
   const [isDragging, setIsDragging] = useState(false);
   const [isEditorFocused, setIsEditorFocused] = useState(false);
   const [hasGeneratedInitialReply, setHasGeneratedInitialReply] = useState(false);
+  const [isGeneratingReply, setIsGeneratingReply] = useState(false);
+  const [generationController, setGenerationController] = useState<AbortController | null>(null);
+  const [streamedContent, setStreamedContent] = useState('');
+  const streamingContentRef = useRef('');
+  const updateTimeoutRef = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
   const t = useTranslations();
 
   // Use external state if provided, otherwise use internal state
   const composerIsOpen = isOpen !== undefined ? isOpen : isComposerOpen;
   const setComposerIsOpen = (value: boolean) => {
+    console.log('Setting composer open:', value);
     if (setIsOpen) {
       setIsOpen(value);
     } else {
       setIsComposerOpen(value);
     }
   };
+
+  // Reset state when composer closes
+  useEffect(() => {
+    console.log('Composer state changed:', { composerIsOpen, hasGeneratedInitialReply });
+    if (!composerIsOpen) {
+      console.log('Resetting composer state');
+      setHasGeneratedInitialReply(false);
+      setStreamedContent('');
+      streamingContentRef.current = '';
+      if (generationController) {
+        generationController.abort();
+        setGenerationController(null);
+      }
+      setIsGeneratingReply(false);
+    }
+  }, [composerIsOpen, generationController]);
 
   // Handle keyboard shortcuts for sending email
   const handleKeyDown = (e: React.KeyboardEvent) => {
@@ -185,27 +207,123 @@ export default function ReplyCompose({ emailData, isOpen, setIsOpen }: ReplyComp
   };
 
   const toggleComposer = () => {
+    console.log('Toggling composer:', !composerIsOpen);
     setComposerIsOpen(!composerIsOpen);
-    if (!composerIsOpen) {
-      // Focus will be handled by the useEffect below
+  };
+
+  const cancelGeneration = () => {
+    if (generationController) {
+      generationController.abort();
+      setIsGeneratingReply(false);
+      setGenerationController(null);
+      toast.info('Reply generation cancelled');
     }
   };
 
-  // Add a useEffect to focus the editor when the composer opens
-  useEffect(() => {
-    if (composerIsOpen) {
-      // Give the editor time to render before focusing
-      const timer = setTimeout(() => {
-        // Focus the editor - Novel editor typically has a ProseMirror element
-        const editorElement = document.querySelector('.ProseMirror');
-        if (editorElement instanceof HTMLElement) {
-          editorElement.focus();
-        }
-      }, 100);
-
-      return () => clearTimeout(timer);
+  // Debounced update of editor content
+  const debouncedUpdateEditor = useCallback((content: string) => {
+    if (updateTimeoutRef.current) {
+      clearTimeout(updateTimeoutRef.current);
     }
-  }, [composerIsOpen]);
+    updateTimeoutRef.current = setTimeout(() => {
+      setInitialContent({
+        type: 'doc',
+        content: [{ type: 'paragraph', content: [{ type: 'text', text: content }] }]
+      });
+    }, 100); // Update every 100ms
+  }, []);
+
+  // Cleanup timeout on unmount
+  useEffect(() => {
+    return () => {
+      if (updateTimeoutRef.current) {
+        clearTimeout(updateTimeoutRef.current);
+      }
+    };
+  }, []);
+
+  // Generate initial reply when composer opens
+  useEffect(() => {
+    console.log('Generation effect triggered:', { 
+      composerIsOpen, 
+      hasGeneratedInitialReply, 
+      isGeneratingReply 
+    });
+    
+    if (composerIsOpen && !hasGeneratedInitialReply) {
+      console.log('Starting reply generation');
+      const controller = new AbortController();
+      setGenerationController(controller);
+      setStreamedContent('');
+      streamingContentRef.current = '';
+
+      const generateReply = async () => {
+        console.log('Generating reply...');
+        setIsGeneratingReply(true);
+        try {
+          console.log('Calling generateInitialReply with emailData:', emailData.length, 'emails');
+          const { document: replyDocument, plainText } = await generateInitialReply(emailData, controller.signal);
+          console.log('Reply generated successfully, setting content:', JSON.stringify({ replyDocument, plainText }, null, 2));
+          
+          // Set both the editor content and message content
+          setInitialContent(replyDocument);
+          setMessageContent(plainText);
+          setHasGeneratedInitialReply(true);
+          setStreamedContent('');
+          streamingContentRef.current = '';
+          
+          // Focus the editor after a short delay to ensure it's rendered
+          setTimeout(() => {
+            const editorElement = document.querySelector('.ProseMirror');
+            if (editorElement instanceof HTMLElement) {
+              editorElement.focus();
+              // Set cursor at the end of the content
+              const selection = window.getSelection();
+              const range = document.createRange();
+              range.selectNodeContents(editorElement);
+              range.collapse(false);
+              selection?.removeAllRanges();
+              selection?.addRange(range);
+              console.log('Editor focused and cursor positioned at end');
+            } else {
+              console.log('Editor element not found');
+            }
+          }, 100);
+        } catch (error) {
+          if (error instanceof Error) {
+            console.error('Error generating initial reply:', error.name, error.message);
+            if (error.name === 'AbortError') {
+              console.log('Reply generation cancelled');
+              return;
+            }
+          }
+          toast.error('Failed to generate initial reply');
+        } finally {
+          console.log('Generation completed');
+          setIsGeneratingReply(false);
+          setGenerationController(null);
+        }
+      };
+
+      void generateReply();
+
+      return () => {
+        console.log('Cleaning up generation effect');
+        controller.abort();
+      };
+    }
+  }, [composerIsOpen, emailData, hasGeneratedInitialReply]);
+
+  // Handle user typing to cancel generation
+  const handleEditorChange = (content: string) => {
+    if (isGeneratingReply && generationController) {
+      generationController.abort();
+      setIsGeneratingReply(false);
+      setGenerationController(null);
+      toast.info('Reply generation cancelled');
+    }
+    setMessageContent(content);
+  };
 
   // Check if the message is empty
   const isMessageEmpty =
@@ -296,28 +414,11 @@ export default function ReplyCompose({ emailData, isOpen, setIsOpen }: ReplyComp
             onDrop={(e) => e.stopPropagation()}
           >
             <Editor
-              onChange={(content) => {
-                setMessageContent(content);
-              }}
+              onChange={handleEditorChange}
               className="sm:max-w-[600px] md:max-w-[2050px]"
               initialValue={initialContent}
               placeholder="Type your reply here..."
-              onFocus={async () => {
-                setIsEditorFocused(true);
-
-                // Generate initial reply if not already done
-                if (!hasGeneratedInitialReply) {
-                  setHasGeneratedInitialReply(true);
-                  try {
-                    const { document, plainText } = await generateInitialReply(emailData);
-                    setInitialContent(document);
-                    setMessageContent(plainText);
-                  } catch (error) {
-                    console.error('Error generating initial reply:', error);
-                    toast.error('Failed to generate initial reply');
-                  }
-                }
-              }}
+              onFocus={() => setIsEditorFocused(true)}
               onBlur={() => {
                 console.log('Editor blurred');
                 setIsEditorFocused(false);

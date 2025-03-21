@@ -1,7 +1,7 @@
 // The brain.ts file in /actions should replace this file once ready.
 'use server';
 
-import { AIResponse, UserContext } from "@/lib/ai";
+import { AIResponse, UserContext, generateConversationId, checkIfQuestion, formatEmailContent, conversationHistories } from "@/lib/ai";
 import { JSONContent } from "novel";
 import { EmailGenerator } from "@/lib/email-generator";
 import { EmailHistoryProvider } from "@/lib/rag-providers/email-history-provider";
@@ -29,6 +29,7 @@ export async function generateAIEmailContent({
   isEdit = false,
   conversationId,
   userContext,
+  signal,
 }: {
   prompt: string;
   currentContent?: string;
@@ -36,44 +37,49 @@ export async function generateAIEmailContent({
   isEdit?: boolean;
   conversationId?: string;
   userContext?: UserContext;
+  signal?: AbortSignal;
 }): Promise<AIEmailResponse> {
   try {
-    const responses = await emailGenerator.generate(prompt, {
+    const toneProvider = new ToneInferenceProvider();
+    const toneContext = await toneProvider.retrieveRelevantContext(prompt, {
+      currentContent,
+      recipients: to,
+      userContext
+    });
+
+    const emailTone = toneContext.inferredTones as EmailTone[];
+
+    const response = await emailGenerator.generate(prompt, {
       currentContent,
       recipients: to,
       conversationId,
-      userContext
+      userContext,
+      additionalContext: {
+        conversationHistories,
+        emailTone,
+      }
     });
+
+    if (!response || response.length === 0) 
+      throw new Error('No response generated');
     
-    const questionResponse = responses.find(r => r.type === 'question');
-    if (questionResponse) {
-      return {
-        content: questionResponse.content,
-        jsonContent: createJsonContent([questionResponse.content]),
-        type: 'question'
-      };
-    }
+
+    const aiResponse = response[0];
+    if (!aiResponse || !aiResponse.content || !aiResponse.type) 
+      throw new Error('Invalid response format');
     
-    const emailResponses = responses.filter(r => r.type === 'email');
-    let cleanedContent = emailResponses.map(r => r.content).join("\n\n").trim();
-    
-    const paragraphs = cleanedContent.split(/\n\s*\n/).map(p => p.trim()).filter(Boolean);
-    
-    const jsonContent = createJsonContent(paragraphs);
     
     return {
-      content: cleanedContent,
-      jsonContent,
-      type: 'email'
+      content: aiResponse.content,
+      jsonContent: createJsonContent([aiResponse.content]),
+      type: aiResponse.type
     };
   } catch (error) {
-    console.error("Error generating AI email content:", error);
+    if (error instanceof Error && error.name === 'AbortError') 
+      throw error;
     
-    return {
-      content: "Sorry, I encountered an error while generating content. Please try again with a different prompt.",
-      jsonContent: createJsonContent(["Sorry, I encountered an error while generating content. Please try again with a different prompt."]),
-      type: 'system'
-    };
+    console.error("Error generating email content:", error);
+    throw error;
   }
 }
 

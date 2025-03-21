@@ -11,7 +11,8 @@ export interface UserContext {
   email?: string;
 }
 
-const conversationHistories: Record<string, {role: 'user' | 'assistant' | 'system', content: string}[]> = {};
+// Store conversation histories
+export const conversationHistories: Record<string, {role: 'user' | 'assistant' | 'system', content: string}[]> = {};
 
 export const generateConversationId = (): string => {
   return `conv_${Date.now()}_${Math.random().toString(36).substring(2, 9)}`;
@@ -29,6 +30,7 @@ export interface AIGenerationContext {
   conversationId?: string;
   userContext?: UserContext;
   additionalContext?: Record<string, any>; // For RAG and other extensions
+  signal?: AbortSignal;
 }
 
 // Define the base class for email generation
@@ -56,7 +58,8 @@ export async function generateEmailContent(
   currentContent?: string,
   recipients?: string[],
   conversationId?: string,
-  userContext?: UserContext
+  userContext?: UserContext,
+  signal?: AbortSignal
 ): Promise<AIResponse[]> {
   try {
     // Get or initialize conversation
@@ -113,7 +116,8 @@ export async function generateEmailContent(
         temperature: 0.7,
         max_tokens: isQuestion ? 150 : 1000,
         top_p: 1
-      })
+      }),
+      signal
     });
     
     if (!response.ok) {
@@ -147,6 +151,9 @@ export async function generateEmailContent(
       }];
     }
   } catch (error) {
+    if (error instanceof Error && error.name === 'AbortError') {
+      throw error;
+    }
     console.error("Error generating email content:", error);
     throw error;
   }
