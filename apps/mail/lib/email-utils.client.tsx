@@ -55,3 +55,23 @@ export const handleUnsubscribe = async ({ emailData }: { emailData: ParsedMessag
 		throw error;
 	}
 };
+
+export const highlightText = (text: string, highlight: string) => {
+  if (!highlight?.trim()) return text;
+
+  const regex = new RegExp(`(${highlight})`, 'gi');
+  const parts = text.split(regex);
+
+  return parts.map((part, i) => {
+    return i % 2 === 1 ? (
+      <span
+        key={i}
+        className="ring-0.5 bg-primary/10 inline-flex items-center justify-center rounded px-1"
+      >
+        {part}
+      </span>
+    ) : (
+      part
+    );
+  });
+};

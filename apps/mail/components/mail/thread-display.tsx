@@ -1,26 +1,31 @@
 import { DropdownMenuContent, DropdownMenuItem } from '@/components/ui/dropdown-menu';
 import { DropdownMenu, DropdownMenuTrigger } from '@/components/ui/dropdown-menu';
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip';
-import { ArchiveX, Forward, ReplyAll } from 'lucide-react';
+import { ArchiveX, Forward, ReplyAll, Star, StarOff } from 'lucide-react';
+import { useSearchParams, useParams } from 'next/navigation';
 import { ScrollArea } from '@/components/ui/scroll-area';
-import { useSearchParams } from 'next/navigation';
 
+import { moveThreadsTo, ThreadDestination } from '@/lib/thread-actions';
 import { MoreVerticalIcon } from '../icons/animated/more-vertical';
 import { useState, useEffect, useCallback, useRef } from 'react';
+import { useThread, useThreads } from '@/hooks/use-threads';
 import { ArchiveIcon } from '../icons/animated/archive';
 import { ExpandIcon } from '../icons/animated/expand';
 import { MailDisplaySkeleton } from './mail-skeleton';
 import { ReplyIcon } from '../icons/animated/reply';
 import { Button } from '@/components/ui/button';
-import { useThread } from '@/hooks/use-threads';
+import { modifyLabels } from '@/actions/mail';
+import { useStats } from '@/hooks/use-stats';
 import ThreadSubject from './thread-subject';
 import { XIcon } from '../icons/animated/x';
 import ReplyCompose from './reply-composer';
 import { useTranslations } from 'next-intl';
 import { NotesPanel } from './note-panel';
+import { cn, FOLDERS } from '@/lib/utils';
 import MailDisplay from './mail-display';
+import { Inbox } from 'lucide-react';
 import { useMail } from './use-mail';
-import { cn } from '@/lib/utils';
+import { toast } from 'sonner';
 
 interface ThreadDisplayProps {
   mail?: any;
@@ -185,28 +190,66 @@ function ThreadActionButton({
 }
 
 export function ThreadDisplay({ mail, onClose, isMobile }: ThreadDisplayProps) {
-  const [, setMail] = useMail();
+  const { data: emailData, isLoading, mutate: mutateThread } = useThread();
+  const { mutate: mutateThreads } = useThreads();
   const searchParams = useSearchParams();
-  const threadIdParam = searchParams.get('threadId');
-  const threadId = mail ?? threadIdParam ?? '';
-  // Only fetch thread data if we have a valid threadId
-  const { data: emailData, isLoading } = useThread(threadId || null);
   const [isMuted, setIsMuted] = useState(false);
   const [isReplyOpen, setIsReplyOpen] = useState(false);
   const [isFullscreen, setIsFullscreen] = useState(false);
   const t = useTranslations();
+  const { mutate: mutateStats } = useStats();
+	const { folder } = useParams<{ folder: string }>();
+	const threadIdParam = searchParams.get('threadId');
+	const threadId = mail ?? threadIdParam ?? '';
 
-  const moreVerticalIconRef = useRef<any>(null);
+	const moreVerticalIconRef = useRef<any>(null);
 
-  useEffect(() => {
-    if (emailData?.[0]) {
-      setIsMuted(emailData[0].unread ?? false);
+	const isInInbox = folder === FOLDERS.INBOX || !folder;
+	const isInArchive = folder === FOLDERS.ARCHIVE;
+	const isInSpam = folder === FOLDERS.SPAM;
+
+	const handleClose = useCallback(() => {
+		onClose?.();
+	}, [onClose]);
+
+	const moveThreadTo = useCallback(
+		async (destination: ThreadDestination) => {
+			await moveThreadsTo({
+				threadIds: [threadId],
+				currentFolder: folder,
+				destination,
+			}).then(async () => {
+        await Promise.all([mutateThread(),mutateStats()]);
+        handleClose();
+      });
+		},
+		[threadId, folder, mutateThread, mutateStats, handleClose],
+	);
+
+	useEffect(() => {
+		if (emailData?.[0]) {
+			setIsMuted(emailData[0].unread ?? false);
+		}
+	}, [emailData]);
+
+  const handleFavourites = async () => {
+    if (!emailData || !threadId) return;
+    if (emailData[0]?.tags?.includes('STARRED')) {
+      toast.promise(modifyLabels({ threadId: [threadId], removeLabels: ['STARRED'] }), {
+        success: 'Removed from favourites.',
+        loading: 'Removing from favourites',
+        error: 'Failed to remove from favourites.',
+      });
+    } else {
+      toast.promise(modifyLabels({ threadId: [threadId], addLabels: ['STARRED'] }), {
+        success: 'Added to favourites.',
+        loading: 'Adding to favourites.',
+        error: 'Failed to add to favourites.',
+      });
     }
-  }, [emailData]);
 
-  const handleClose = useCallback(() => {
-    onClose?.();
-  }, [onClose]);
+    await Promise.all([mutateThread(), mutateThreads()]);
+  };
 
   useEffect(() => {
     const handleEsc = (event: KeyboardEvent) => {
@@ -261,6 +304,13 @@ export function ThreadDisplay({ mail, onClose, isMobile }: ThreadDisplayProps) {
               />
 
               <ThreadActionButton
+                icon={!(emailData) || emailData[0]?.tags?.includes('STARRED') ? StarOff : Star}
+                label={t('common.threadDisplay.favourites')}
+                onClick={handleFavourites}
+                className="relative top-0.5"
+              />
+
+              <ThreadActionButton
                 icon={ReplyIcon}
                 label={t('common.threadDisplay.reply')}
                 disabled={true}
@@ -305,112 +355,125 @@ export function ThreadDisplay({ mail, onClose, isMobile }: ThreadDisplayProps) {
       </div>
     );
 
-  return (
-    <div
-      className={cn(
-        'flex flex-col',
-        isFullscreen ? 'h-screen' : isMobile ? 'h-full' : 'h-[calc(100vh-2rem)]',
-      )}
-    >
-      <div
-        className={cn(
-          'bg-offsetLight dark:bg-offsetDark relative flex flex-col overflow-hidden transition-all duration-300',
-          isMobile ? 'h-full' : 'h-full',
-          !isMobile && !isFullscreen && 'rounded-r-lg',
-          isFullscreen ? 'fixed inset-0 z-50' : '',
-        )}
-      >
-        <div className="flex flex-shrink-0 items-center border-b px-1 pb-1 md:px-3 md:pb-2 md:pt-[10px]">
-          <div className="flex flex-1 items-center gap-2">
-            <ThreadActionButton
-              icon={XIcon}
-              label={t('common.actions.close')}
-              disabled={!emailData}
-              onClick={handleClose}
-            />
-            <ThreadSubject subject={emailData[0]?.subject} isMobile={isMobile} />
-          </div>
-          <div className="flex items-center md:gap-6">
-            <NotesPanel threadId={mail} />
-            <ThreadActionButton
-              icon={isFullscreen ? ExpandIcon : ExpandIcon}
-              label={
-                isFullscreen
-                  ? t('common.threadDisplay.exitFullscreen')
-                  : t('common.threadDisplay.enterFullscreen')
-              }
-              disabled={!emailData}
-              onClick={() => setIsFullscreen(!isFullscreen)}
-            />
-            <ThreadActionButton
-              icon={ArchiveIcon}
-              label={t('common.threadDisplay.archive')}
-              disabled={!emailData}
-              className="relative top-0.5"
-            />
-            <ThreadActionButton
-              icon={ReplyIcon}
-              label={t('common.threadDisplay.reply')}
-              disabled={!emailData}
-              onClick={() => setIsReplyOpen(true)}
-            />
-            <DropdownMenu>
-              <DropdownMenuTrigger asChild>
-                <Button
-                  variant="ghost"
-                  className="md:h-fit md:px-2"
-                  disabled={!emailData}
-                  onMouseEnter={() => moreVerticalIconRef.current?.startAnimation?.()}
-                  onMouseLeave={() => moreVerticalIconRef.current?.stopAnimation?.()}
-                >
-                  <MoreVerticalIcon ref={moreVerticalIconRef} className="h-4 w-4" />
-                  <span className="sr-only">{t('common.threadDisplay.moreOptions')}</span>
-                </Button>
-              </DropdownMenuTrigger>
-              <DropdownMenuContent align="end">
-                <DropdownMenuItem>
-                  <ArchiveX className="mr-2 h-4 w-4" /> {t('common.threadDisplay.moveToSpam')}
-                </DropdownMenuItem>
-                <DropdownMenuItem>
-                  <ReplyAll className="mr-2 h-4 w-4" /> {t('common.threadDisplay.replyAll')}
-                </DropdownMenuItem>
-                <DropdownMenuItem>
-                  <Forward className="mr-2 h-4 w-4" /> {t('common.threadDisplay.forward')}
-                </DropdownMenuItem>
-                <DropdownMenuItem>{t('common.threadDisplay.markAsUnread')}</DropdownMenuItem>
-                <DropdownMenuItem>{t('common.threadDisplay.addLabel')}</DropdownMenuItem>
-                <DropdownMenuItem>{t('common.threadDisplay.muteThread')}</DropdownMenuItem>
-              </DropdownMenuContent>
-            </DropdownMenu>
-          </div>
-        </div>
-        <div className="flex min-h-0 flex-1 flex-col overflow-hidden">
-          <ScrollArea className="h-full flex-1" type="auto">
-            <div className="pb-4">
-              {[...(emailData || [])].reverse().map((message, index) => (
-                <div
-                  key={message.id}
-                  className={cn(
-                    'transition-all duration-200',
-                    index > 0 && 'border-border border-t',
-                  )}
-                >
-                  <MailDisplay
-                    emailData={message}
-                    isFullscreen={isFullscreen}
-                    isMuted={isMuted}
-                    isLoading={isLoading}
-                    index={index}
-                  />
-                </div>
-              ))}
-            </div>
-          </ScrollArea>
-          <div className={`relative ${isFullscreen ? '' : 'top-1'} flex-shrink-0`}>
-            <ReplyCompose emailData={emailData} isOpen={isReplyOpen} setIsOpen={setIsReplyOpen} />
-          </div>
-        </div>
-      </div>
-    </div>
-  );
+	return (
+		<div
+			className={cn(
+				'flex flex-col',
+				isFullscreen ? 'h-screen' : isMobile ? 'h-full' : 'h-[calc(100vh-2rem)]',
+			)}
+		>
+			<div
+				className={cn(
+					'bg-offsetLight dark:bg-offsetDark relative flex flex-col overflow-hidden transition-all duration-300',
+					isMobile ? 'h-full' : 'h-full',
+					!isMobile && !isFullscreen && 'rounded-r-lg',
+					isFullscreen ? 'fixed inset-0 z-50' : '',
+				)}
+			>
+				<div className="flex flex-shrink-0 items-center border-b px-1 pb-1 md:px-3 md:pb-2 md:pt-[10px]">
+					<div className="flex flex-1 items-center gap-2">
+						<ThreadActionButton
+							icon={XIcon}
+							label={t('common.actions.close')}
+							disabled={!emailData}
+							onClick={handleClose}
+						/>
+						<ThreadSubject subject={emailData[0]?.subject} isMobile={isMobile} />
+					</div>
+					<div className="flex items-center md:gap-6">
+						<NotesPanel threadId={mail} />
+						<ThreadActionButton
+							icon={isFullscreen ? ExpandIcon : ExpandIcon}
+							label={
+								isFullscreen
+									? t('common.threadDisplay.exitFullscreen')
+									: t('common.threadDisplay.enterFullscreen')
+							}
+							disabled={!emailData}
+							onClick={() => setIsFullscreen(!isFullscreen)}
+						/>
+						<ThreadActionButton
+							icon={ArchiveIcon}
+							label={t('common.threadDisplay.archive')}
+							disabled={!emailData || (!isInInbox && !isInSpam)}
+							className="relative top-0.5"
+							onClick={() => moveThreadTo('archive')}
+						/>
+						<ThreadActionButton
+							icon={ReplyIcon}
+							label={t('common.threadDisplay.reply')}
+							disabled={!emailData}
+							onClick={() => setIsReplyOpen(true)}
+						/>
+						<DropdownMenu>
+							<DropdownMenuTrigger asChild>
+								<Button
+									variant="ghost"
+									className="md:h-fit md:px-2"
+									disabled={!emailData}
+									onMouseEnter={() => moreVerticalIconRef.current?.startAnimation?.()}
+									onMouseLeave={() => moreVerticalIconRef.current?.stopAnimation?.()}
+								>
+									<MoreVerticalIcon ref={moreVerticalIconRef} className="h-4 w-4" />
+									<span className="sr-only">{t('common.threadDisplay.moreOptions')}</span>
+								</Button>
+							</DropdownMenuTrigger>
+							<DropdownMenuContent align="end">
+								{isInInbox && (
+									<DropdownMenuItem onClick={() => moveThreadTo('spam')}>
+										<ArchiveX className="mr-2 h-4 w-4" /> {t('common.threadDisplay.moveToSpam')}
+									</DropdownMenuItem>
+								)}
+								{isInSpam && (
+									<DropdownMenuItem onClick={() => moveThreadTo('inbox')}>
+										<Inbox className="mr-2 h-4 w-4" /> {t('common.mail.moveToInbox')}
+									</DropdownMenuItem>
+								)}
+								{isInArchive && (
+									<DropdownMenuItem onClick={() => moveThreadTo('inbox')}>
+										<Inbox className="mr-2 h-4 w-4" /> {t('common.mail.moveToInbox')}
+									</DropdownMenuItem>
+								)}
+								<DropdownMenuItem>
+									<ReplyAll className="mr-2 h-4 w-4" /> {t('common.threadDisplay.replyAll')}
+								</DropdownMenuItem>
+								<DropdownMenuItem>
+									<Forward className="mr-2 h-4 w-4" /> {t('common.threadDisplay.forward')}
+								</DropdownMenuItem>
+								<DropdownMenuItem>{t('common.threadDisplay.markAsUnread')}</DropdownMenuItem>
+								<DropdownMenuItem>{t('common.threadDisplay.addLabel')}</DropdownMenuItem>
+								<DropdownMenuItem>{t('common.threadDisplay.muteThread')}</DropdownMenuItem>
+							</DropdownMenuContent>
+						</DropdownMenu>
+					</div>
+				</div>
+				<div className="flex min-h-0 flex-1 flex-col overflow-hidden">
+					<ScrollArea className="h-full flex-1" type="auto">
+						<div className="pb-4">
+							{[...(emailData || [])].reverse().map((message, index) => (
+								<div
+									key={message.id}
+									className={cn(
+										'transition-all duration-200',
+										index > 0 && 'border-border border-t',
+									)}
+								>
+									<MailDisplay
+										emailData={message}
+										isFullscreen={isFullscreen}
+										isMuted={isMuted}
+										isLoading={isLoading}
+										index={index}
+									/>
+								</div>
+							))}
+						</div>
+					</ScrollArea>
+					<div className={`relative ${isFullscreen ? '' : 'top-1'} flex-shrink-0`}>
+						<ReplyCompose emailData={emailData} isOpen={isReplyOpen} setIsOpen={setIsReplyOpen} />
+					</div>
+				</div>
+			</div>
+		</div>
+	);
 }
