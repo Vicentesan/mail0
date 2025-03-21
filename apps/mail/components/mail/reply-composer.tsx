@@ -1,15 +1,16 @@
-import { type Dispatch, type SetStateAction, useRef, useState, useEffect } from 'react';
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
+import { type Dispatch, type SetStateAction, useEffect, useState } from 'react';
 import { UploadedFileIcon } from '@/components/create/uploaded-file-icon';
-import { ArrowUp, Paperclip, Reply, X, Plus } from 'lucide-react';
-import { cleanEmailAddress, truncateFileName } from '@/lib/utils';
+import { cleanEmailAddress, cn, truncateFileName } from '@/lib/utils';
+import { ArrowUp, Paperclip, Plus, Reply, X } from 'lucide-react';
 import { Separator } from '@/components/ui/separator';
+import { generateInitialReply } from '@/actions/reply';
 import Editor from '@/components/create/editor';
 import { Button } from '@/components/ui/button';
 import type { ParsedMessage } from '@/types';
 import { useTranslations } from 'next-intl';
 import { sendEmail } from '@/actions/send';
-import { cn } from '@/lib/utils';
+import type { JSONContent } from 'novel';
 import { toast } from 'sonner';
 
 interface ReplyComposeProps {
@@ -19,13 +20,22 @@ interface ReplyComposeProps {
 }
 
 export default function ReplyCompose({ emailData, isOpen, setIsOpen }: ReplyComposeProps) {
-  const editorRef = useRef<HTMLTextAreaElement>(null);
   const [attachments, setAttachments] = useState<File[]>([]);
   const [isUploading, setIsUploading] = useState(false);
   const [messageContent, setMessageContent] = useState('');
+  const [initialContent, setInitialContent] = useState<JSONContent>({
+    type: 'doc',
+    content: [
+      {
+        type: 'paragraph',
+        content: [],
+      },
+    ],
+  });
   const [isComposerOpen, setIsComposerOpen] = useState(false);
   const [isDragging, setIsDragging] = useState(false);
   const [isEditorFocused, setIsEditorFocused] = useState(false);
+  const [hasGeneratedInitialReply, setHasGeneratedInitialReply] = useState(false);
   const t = useTranslations();
 
   // Use external state if provided, otherwise use internal state
@@ -290,22 +300,37 @@ export default function ReplyCompose({ emailData, isOpen, setIsOpen }: ReplyComp
                 setMessageContent(content);
               }}
               className="sm:max-w-[600px] md:max-w-[2050px]"
-              initialValue={{
-                type: 'doc',
-                content: [
-                  {
-                    type: 'paragraph',
-                    content: [],
-                  },
-                ],
-              }}
+              initialValue={initialContent}
               placeholder="Type your reply here..."
-              onFocus={() => {
+              onFocus={async () => {
                 setIsEditorFocused(true);
+
+                // Generate initial reply if not already done
+                if (!hasGeneratedInitialReply) {
+                  setHasGeneratedInitialReply(true);
+                  try {
+                    const { document, plainText } = await generateInitialReply(emailData);
+                    setInitialContent(document);
+                    setMessageContent(plainText);
+                  } catch (error) {
+                    console.error('Error generating initial reply:', error);
+                    toast.error('Failed to generate initial reply');
+                  }
+                }
               }}
               onBlur={() => {
                 console.log('Editor blurred');
                 setIsEditorFocused(false);
+              }}
+              threadContext={{
+                subject: emailData[0]?.subject,
+                previousEmails: emailData
+                  .map((email) => ({
+                    content: email.body,
+                    sender: `${email.sender.name} <${email.sender.email}>`,
+                    timestamp: email.receivedOn,
+                  }))
+                  .reverse(),
               }}
             />
           </div>
