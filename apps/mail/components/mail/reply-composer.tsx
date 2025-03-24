@@ -364,7 +364,7 @@ export default function ReplyCompose({ emailData, isOpen, setIsOpen }: ReplyComp
     <div className="bg-offsetLight dark:bg-offsetDark w-full p-2">
       <form
         className={cn(
-          'border-border ring-offset-background flex h-[300px] flex-col space-y-2.5 rounded-[10px] border px-2 py-2 transition-shadow duration-300 ease-in-out',
+          'border-border ring-offset-background flex h-fit flex-col space-y-2.5 rounded-[10px] border px-2 py-2 transition-shadow duration-300 ease-in-out',
           isEditorFocused ? 'ring-2 ring-[#3D3D3D] ring-offset-1' : '',
         )}
         onDragOver={handleDragOver}

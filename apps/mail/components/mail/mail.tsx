@@ -78,18 +78,18 @@ export function DemoMailLayout() {
 		const currentParams = new URLSearchParams(searchParams?.toString() || '');
 		currentParams.delete('threadId');
 	};
-	const [activeCategory, setActiveCategory] = useState(t('common.mailCategories.primary'));
+	const [activeCategory, setActiveCategory] = useState('Primary');
 	const [filteredItems, setFilteredItems] = useState(items);
 
 	useEffect(() => {
-		if (activeCategory === t('common.mailCategories.primary')) {
+		if (activeCategory === 'Primary') {
 			setFilteredItems(items);
 		} else {
 			const categoryMap = {
-				Important: t('common.mailCategories.important'),
-				Personal: t('common.mailCategories.personal'),
-				Updates: t('common.mailCategories.updates'),
-				Promotions: t('common.mailCategories.promotions'),
+				Important: 'important',
+				Personal: 'personal',
+				Updates: 'updates',
+				Promotions: 'promotions',
 			};
 
       const filterTag = categoryMap[activeCategory as keyof typeof categoryMap];
@@ -131,7 +131,7 @@ export function DemoMailLayout() {
                   <MailCategoryTabs
                     iconsOnly={true}
                     onCategoryChange={(category) => {
-
+                      setActiveCategory(category)
                     }}
                     initialCategory={activeCategory}
                   />

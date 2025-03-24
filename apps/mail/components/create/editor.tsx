@@ -533,7 +533,7 @@ export default function Editor({
           initialContent={initialValue || defaultEditorContent}
           extensions={configuredExtensions}
           ref={containerRef}
-          className="min-h-96 cursor-text"
+          className="min-h-52 cursor-text"
           editorProps={{
             handleDOMEvents: {
               keydown: (view, event) => {
