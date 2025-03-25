@@ -567,19 +567,9 @@ export default function Editor({
             editorRef.current = editor;
           }}
           onUpdate={({ editor }) => {
-            // Store the content in the ref to prevent losing it
             const content = editor.getHTML();
             contentRef.current = content;
             onChange(content);
-
-            // Simple profanity check (you can expand this list)
-            const profanityList = ['fuck', 'shit', 'damn', 'ass'];
-            const lowercaseContent = content.toLowerCase();
-            const hasProfanity = profanityList.some(word => lowercaseContent.includes(word));
-
-            if (hasProfanity && !showProfanityDialog) {
-              dispatch({ type: 'TOGGLE_PROFANITY_DIALOG', payload: true });
-            }
           }}
           slotBefore={<MenuBar onAttachmentsChange={onAttachmentsChange} />}
           slotAfter={<ImageResizer />}
@@ -635,18 +625,21 @@ export default function Editor({
       </EditorRoot>
 
       {/* Profanity Warning Dialog */}
-      <Dialog open={showProfanityDialog} onOpenChange={(open) => dispatch({ type: 'TOGGLE_PROFANITY_DIALOG', payload: open })}>
+      <Dialog
+        open={showProfanityDialog}
+        onOpenChange={(open) => dispatch({ type: 'TOGGLE_PROFANITY_DIALOG', payload: open })}
+      >
         <DialogContent>
           <DialogHeader>
             <DialogTitle>Take a Moment to Reflect</DialogTitle>
             <DialogDescription className="space-y-4">
               <p>
-                We noticed some strong language in your email. While we understand that emotions can run high,
-                sending an email when upset often leads to regret.
+                We noticed some strong language in your email. While we understand that emotions can
+                run high, sending an email when upset often leads to regret.
               </p>
               <p>
                 Consider:
-                <ul className="list-disc pl-6 mt-2">
+                <ul className="mt-2 list-disc pl-6">
                   <li>Taking a short break and returning with a fresh perspective</li>
                   <li>Writing a draft but waiting to send it until tomorrow</li>
                   <li>Having a constructive conversation in person instead</li>
@@ -656,7 +649,10 @@ export default function Editor({
             </DialogDescription>
           </DialogHeader>
           <DialogFooter>
-            <Button variant="outline" onClick={() => dispatch({ type: 'TOGGLE_PROFANITY_DIALOG', payload: false })}>
+            <Button
+              variant="outline"
+              onClick={() => dispatch({ type: 'TOGGLE_PROFANITY_DIALOG', payload: false })}
+            >
               I Understand
             </Button>
           </DialogFooter>

@@ -2,6 +2,7 @@ import { Decoration, DecorationSet } from '@tiptap/pm/view';
 import { generateAIEmailContent } from '@/actions/ai';
 import { Plugin, PluginKey } from '@tiptap/pm/state';
 import { Extension } from '@tiptap/core';
+import { marked } from 'marked';
 
 function debounce<T extends (...args: any[]) => any>(
   func: T,
@@ -114,8 +115,7 @@ export const GhostText = Extension.create<GhostTextOptions>({
         });
 
         if (response.content && response.content.length > 0) {
-          storage.suggestion = response.content;
-          // Force a view update to show the new suggestion
+          storage.suggestion = await marked.parse(response.content);
           this.editor?.view.dispatch(this.editor.view.state.tr);
         }
       } catch (error) {
@@ -149,7 +149,9 @@ export const GhostText = Extension.create<GhostTextOptions>({
                   Decoration.widget(selection.$head.pos, () => {
                     const span = document.createElement('span');
                     span.className = 'ghost-text';
-                    span.textContent = storage.suggestion;
+                    if (storage.suggestion) {
+                      span.innerHTML = storage.suggestion;
+                    }
                     return span;
                   }),
                 );
@@ -169,7 +171,9 @@ export const GhostText = Extension.create<GhostTextOptions>({
         const storage = this.storage as GhostTextStorage;
 
         if (storage.suggestion) {
-          editor.commands.insertContent(storage.suggestion);
+          // Parse markdown to HTML then let Tiptap handle the HTML conversion
+          const htmlContent = marked.parse(storage.suggestion);
+          editor.commands.insertContent(htmlContent);
           storage.suggestion = null;
           return true;
         }
