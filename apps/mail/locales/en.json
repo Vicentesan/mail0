@@ -12,7 +12,27 @@
       "signedOutSuccess": "Signed out successfully!",
       "signOutError": "Error signing out",
       "refresh": "Refresh",
-      "loading": "Loading..."
+      "loading": "Loading...",
+      "featureNotImplemented": "This feature is not implemented yet",
+      "moving": "Moving...",
+      "movedToInbox": "Moved to inbox",
+      "movingToInbox": "Moving to inbox...",
+      "movedToSpam": "Moved to spam",
+      "movingToSpam": "Moving to spam...",
+      "archiving": "Archiving...",
+      "archived": "Archived",
+      "failedToMove": "Failed to move message",
+      "addingToFavorites": "Adding to favorites...",
+      "removingFromFavorites": "Removing from favorites...",
+      "addedToFavorites": "Added to favorites",
+      "removedFromFavorites": "Removed from favorites",
+      "failedToAddToFavorites": "Failed to add to favorites",
+      "failedToRemoveFromFavorites": "Failed to remove from favorites",
+      "failedToModifyFavorites": "Failed to modify favorites",
+      "markingAsRead": "Marking as read...",
+      "markingAsUnread": "Marking as unread...",
+      "cancel": "Cancel",
+      "save": "Save"
     },
     "themes": {
       "dark": "Dark",
@@ -83,6 +103,7 @@
     },
     "mailCategories": {
       "primary": "Primary",
+      "allMail": "All Mail",
       "important": "Important",
       "personal": "Personal",
       "updates": "Updates",
@@ -219,7 +240,8 @@
       "moveToTrash": "Move to Trash",
       "markAsUnread": "Mark as Unread",
       "markAsRead": "Mark as Read",
-      "addStar": "Add Star",
+      "addFavorite": "Favorite",
+      "removeFavorite": "Unfavorite",
       "muteThread": "Mute Thread",
       "moving": "Moving...",
       "moved": "Moved",
@@ -231,6 +253,9 @@
       "createNewLabel": "Create New Label",
       "noLabelsAvailable": "No labels available",
       "loadMore": "Load more"
+    },
+    "units": {
+      "mb": "{amount} MB"
     }
   },
   "navigation": {
@@ -338,11 +363,30 @@
     "createEmail": {
       "body": "Body",
       "example": "zero@0.email",
-      "attachments": "Attachments",
+      "attachments": "Attachments ({count})",
+      "addMore": "Add more",
       "dropFilesToAttach": "Drop files to attach",
       "writeYourMessageHere": "Write your message here...",
       "emailSentSuccessfully": "Email sent successfully",
-      "failedToSendEmail": "Failed to send email. Please try again."
+      "failedToSendEmail": "Failed to send email. Please try again.",
+      "addLink": "Add Link",
+      "addUrlToCreateALink": "Add URL to create a link. The link will open in a new tab.",
+      "editor": {
+        "menuBar": {
+          "heading1": "Heading 1",
+          "heading2": "Heading 2",
+          "heading3": "Heading 3",
+          "bold": "Bold",
+          "italic": "Italic",
+          "strikethrough": "Strikethrough",
+          "underline": "Underline",
+          "link": "Link",
+          "bulletList": "Bullet List",
+          "orderedList": "Ordered List",
+          "viewAttachments": "View Attachments",
+          "attachFiles": "Attach Files"
+        }
+      }
     }
   }
 }

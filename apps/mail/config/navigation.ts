@@ -153,7 +153,7 @@ export const navigationConfig: Record<string, NavConfig> = {
           },
           {
             title: 'navigation.settings.security',
-            url: '#',
+            url: '/settings/security',
             icon: ShieldCheckIcon,
             disabled: true,
           },
@@ -164,7 +164,7 @@ export const navigationConfig: Record<string, NavConfig> = {
           },
           {
             title: 'navigation.settings.shortcuts',
-            url: '#',
+            url: '/settings/shortcuts',
             icon: KeyboardIcon,
             disabled: true,
           },

@@ -20,7 +20,7 @@ import { Avatar, AvatarImage, AvatarFallback } from '../ui/avatar';
 import { useMailNavigation } from '@/hooks/use-mail-navigation';
 import { preloadThread, useThreads } from '@/hooks/use-threads';
 import { useHotKey, useKeyState } from '@/hooks/use-hot-key';
-import { cn, formatDate, getEmailLogo } from '@/lib/utils';
+import { cn, FOLDERS, formatDate, getEmailLogo } from '@/lib/utils';
 import { useSearchValue } from '@/hooks/use-search-value';
 import { markAsRead, markAsUnread } from '@/actions/mail';
 import { ScrollArea } from '@/components/ui/scroll-area';
@@ -34,14 +34,46 @@ import { Button } from '../ui/button';
 import { useQueryState } from 'nuqs';
 import items from './demo.json';
 import { toast } from 'sonner';
+import { ThreadContextMenu } from '@/components/context/thread-context';
 const HOVER_DELAY = 1000; // ms before prefetching
+
+const ThreadWrapper = ({
+  children,
+  emailId,
+  threadId,
+  isFolderInbox,
+  isFolderSpam,
+  isFolderSent,
+  refreshCallback,
+}: {
+  children: React.ReactNode;
+  emailId: string;
+  threadId: string;
+  isFolderInbox: boolean;
+  isFolderSpam: boolean;
+  isFolderSent: boolean;
+  refreshCallback: () => void;
+}) => {
+  return (
+    <ThreadContextMenu
+      emailId={emailId}
+      threadId={threadId}
+      isInbox={isFolderInbox}
+      isSpam={isFolderSpam}
+      isSent={isFolderSent}
+      refreshCallback={refreshCallback}
+    >
+      {children}
+    </ThreadContextMenu>
+  );
+};
 
 const Thread = memo(
   ({
     message,
     selectMode,
     demo,
-    onClick,
+    onMouseDown,
     sessionData,
     isKeyboardFocused,
     isInQuickActionMode,
@@ -58,6 +90,8 @@ const Thread = memo(
     const [searchValue] = useSearchValue();
     const t = useTranslations();
     const searchParams = useSearchParams();
+    const { folder } = useParams<{ folder: string }>();
+    const { mutate } = useThreads();
     const threadIdParam = searchParams.get('threadId');
     const hoverTimeoutRef = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
     const isHovering = useRef<boolean>(false);
@@ -72,6 +106,10 @@ const Thread = memo(
     const threadLabels = useMemo(() => {
       return [...(message.tags || [])];
     }, [message.tags]);
+
+    const isFolderInbox = folder === FOLDERS.INBOX || !folder;
+    const isFolderSpam = folder === FOLDERS.SPAM;
+    const isFolderSent = folder === FOLDERS.SENT;
 
     const handleMouseEnter = () => {
       if (demo) return;
@@ -120,8 +158,8 @@ const Thread = memo(
       };
     }, []);
 
-    return (
-      <div className="p-1" onClick={onClick ? onClick(message) : undefined}>
+    const content = (
+      <div className="p-1 px-3" onMouseDown={onMouseDown ? onMouseDown(message) : undefined}>
         {demo ? (
           <div
             data-thread-id={message.threadId ?? message.id}
@@ -129,7 +167,7 @@ const Thread = memo(
             onMouseLeave={handleMouseLeave}
             key={message.threadId ?? message.id}
             className={cn(
-              'hover:bg-offsetLight hover:bg-primary/5 group relative flex cursor-pointer flex-col items-start overflow-clip rounded-lg border border-transparent px-4 py-3 text-left text-sm transition-all hover:opacity-100',
+              'hover:bg-offsetLight hover:bg-primary/5 group relative flex cursor-pointer flex-col items-start overflow-clip rounded-lg border border-transparent  px-4 py-3 text-left text-sm transition-all hover:opacity-100',
               isMailSelected || (!message.unread && 'opacity-50'),
               (isMailSelected || isMailBulkSelected || isKeyboardFocused) &&
                 'border-border bg-primary/5 opacity-100',
@@ -292,6 +330,19 @@ const Thread = memo(
         )}
       </div>
     );
+
+    return (
+      <ThreadWrapper
+        emailId={message.id}
+        threadId={message.threadId ?? message.id}
+        isFolderInbox={isFolderInbox}
+        isFolderSpam={isFolderSpam}
+        isFolderSent={isFolderSent}
+        refreshCallback={() => mutate()}
+      >
+        {content}
+      </ThreadWrapper>
+    );
   },
 );
 
@@ -315,7 +366,7 @@ export function MailListDemo({
                 key={item.id}
                 message={item}
                 selectMode={'single'}
-                onClick={(message) => () => onSelectMail && onSelectMail(message)}
+                onMouseDown={(message) => () => onSelectMail && onSelectMail(message)}
               />
             ) : null;
           })}
@@ -497,14 +548,19 @@ export const MailList = memo(({ isCompact }: MailListProps) => {
     return 'single';
   }, [isKeyPressed]);
 
-  const handleMailClick = useCallback(
+  const handleMailMouseDown = useCallback(
     (message: InitialThread) => () => {
       handleMouseEnter(message.id);
 
       const messageThreadId = message.threadId ?? message.id;
 
       // Update local state immediately for optimistic UI
-      setMail((prev) => ({ ...prev, selected: messageThreadId }));
+      setMail((prev) => ({ 
+        ...prev, 
+        selected: messageThreadId,
+        replyComposerOpen: false,
+        forwardComposerOpen: false
+      }));
 
       // Update URL param without navigation
       void setThreadId(messageThreadId);
@@ -515,7 +571,7 @@ export const MailList = memo(({ isCompact }: MailListProps) => {
         toast.error(t('common.mail.failedToMarkAsRead'));
       });
     },
-    [getSelectMode, setThreadId, items, handleMouseEnter, t, setMail],
+    [handleMouseEnter, setThreadId, t, setMail],
   );
 
   const isEmpty = items.length === 0;
@@ -564,7 +620,7 @@ export const MailList = memo(({ isCompact }: MailListProps) => {
           {items.map((data, index) => {
             return (
               <Thread
-                onClick={handleMailClick}
+                onMouseDown={handleMailMouseDown}
                 selectMode={getSelectMode()}
                 isCompact={isCompact}
                 sessionData={sessionData}
@@ -581,7 +637,7 @@ export const MailList = memo(({ isCompact }: MailListProps) => {
             <Button
               variant={'ghost'}
               className="w-full rounded-none"
-              onClick={handleScroll}
+              onMouseDown={handleScroll}
               disabled={isLoading || isValidating}
             >
               {isLoading || isValidating ? (

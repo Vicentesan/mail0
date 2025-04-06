@@ -310,7 +310,7 @@ export const driver = async (config: IConfig): Promise<MailManager> => {
       return { ...res.data, threads } as any;
     },
     get: async (id: string): Promise<ParsedMessage[]> => {
-      console.log(id);
+      console.log('Fetching thread:', id);
       const res = await gmail.users.threads.get({ userId: 'me', id, format: 'full' });
       if (!res.data.messages) return [];
 
@@ -459,15 +459,33 @@ export const driver = async (config: IConfig): Promise<MailManager> => {
       );
       return { threadIds };
     },
-    async modifyLabels(id: string[], options: { addLabels: string[]; removeLabels: string[] }) {
-      await gmail.users.messages.batchModify({
-        userId: 'me',
-        requestBody: {
-          ids: id,
-          addLabelIds: options.addLabels,
-          removeLabelIds: options.removeLabels,
-        },
-      });
+    async modifyLabels(threadIds: string[], options: { addLabels: string[]; removeLabels: string[] }) {
+      const threadResults = await Promise.allSettled(
+        threadIds.map(threadId =>
+          gmail.users.threads.get({
+            userId: 'me',
+            id: threadId,
+            format: 'minimal'
+          })
+        )
+      );
+
+      const messageIds = threadResults
+        .filter((result): result is PromiseFulfilledResult<any> => result.status === 'fulfilled')
+        .flatMap(result => result.value.data.messages || [])
+        .map(msg => msg.id)
+        .filter((id): id is string => !!id);
+
+      if (messageIds.length > 0) {
+        await gmail.users.messages.batchModify({
+          userId: 'me',
+          requestBody: {
+            ids: messageIds,
+            addLabelIds: options.addLabels,
+            removeLabelIds: options.removeLabels,
+          },
+        });
+      }
     },
     getDraft: async (draftId: string) => {
       try {

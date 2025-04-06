@@ -1,3 +1,6 @@
+import { extractTextFromHTML } from "@/actions/extractText";
+import { createEmbeddings, generateCompletions } from "./groq";
+
 interface AIResponse {
   id: string;
   content: string;
@@ -17,7 +20,6 @@ export const generateConversationId = (): string => {
   return `conv_${Date.now()}_${Math.random().toString(36).substring(2, 9)}`;
 };
 
-
 export async function generateEmailContent(
   prompt: string,
   currentContent?: string,
@@ -26,6 +28,10 @@ export async function generateEmailContent(
   userContext?: UserContext
 ): Promise<AIResponse[]> {
   try {
+    if (!process.env.GROQ_API_KEY) {
+      throw new Error('Groq API key is not configured');
+    }
+
     // Get or initialize conversation
     const convId = conversationId || generateConversationId();
     if (!conversationHistories[convId]) {
@@ -48,48 +54,70 @@ export async function generateEmailContent(
     // Check if this is a question about the email
     const isQuestion = checkIfQuestion(prompt);
     
-    // Prepare messages for API call
-    const messages = [...conversationHistories[convId]];
+    // Build system prompt from conversation history and context
+    let systemPrompt = '';
+    const systemMessages = conversationHistories[convId].filter(msg => msg.role === 'system');
+    if (systemMessages.length > 0) {
+      systemPrompt = systemMessages.map(msg => msg.content).join('\n\n');
+    }
     
     // Add context about current email if it exists
     if (currentContent) {
-      messages.push({
-        role: 'system',
-        content: `The user's current email draft is:\n\n${currentContent}`
-      });
+      systemPrompt += `\n\nThe user's current email draft is:\n\n${currentContent}`;
     }
     
     // Add context about recipients
     if (recipients && recipients.length > 0) {
-      messages.push({
-        role: 'system',
-        content: `The email is addressed to: ${recipients.join(', ')}`
-      });
+      systemPrompt += `\n\nThe email is addressed to: ${recipients.join(', ')}`;
     }
     
-    // Make API call to OpenAI
-    const response = await fetch('https://api.openai.com/v1/chat/completions', {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        'Authorization': `Bearer ${process.env.OPENAI_API_KEY}`
-      },
-      body: JSON.stringify({
-        model: 'gpt-4-turbo',
-        messages,
-        temperature: 0.7,
-        max_tokens: isQuestion ? 150 : 1000,
-        top_p: 1
-      })
+    // Build user prompt from conversation history
+    const userMessages = conversationHistories[convId]
+      .filter(msg => msg.role === 'user' || msg.role === 'assistant')
+      .map(msg => `${msg.role === 'user' ? 'User' : 'Assistant'}: ${msg.content}`)
+      .join('\n\n');
+    
+    // Create embeddings for relevant context
+    const embeddingTexts: Record<string, string> = {};
+    
+    if (currentContent) {
+      embeddingTexts.currentEmail = currentContent;
+    }
+    
+    if (prompt) {
+      embeddingTexts.userPrompt = prompt;
+    }
+    
+    // Add previous messages for context
+    const previousMessages = conversationHistories[convId]
+      .filter(msg => msg.role === 'user' || msg.role === 'assistant')
+      .slice(-4); // Get last 4 messages
+      
+    if (previousMessages.length > 0) {
+      embeddingTexts.conversationHistory = previousMessages
+        .map(msg => `${msg.role}: ${msg.content}`)
+        .join('\n\n');
+    }
+    
+    // Generate embeddings
+    let embeddings = {};
+    try {
+      embeddings = await createEmbeddings(embeddingTexts);
+    } catch (embeddingError) {
+      console.error(embeddingError)
+    }
+    
+    // Make API call using the ai function
+    const { completion } = await generateCompletions({
+      model: 'gpt-4o-mini', // Using Groq's model
+      systemPrompt,
+      prompt: userMessages + '\n\nUser: ' + prompt,
+      temperature: 0.7,
+      max_tokens: isQuestion ? 150 : 1000,
+      embeddings // Pass the embeddings to the API call
     });
     
-    if (!response.ok) {
-      const errorData = await response.json();
-      throw new Error(`OpenAI API error: ${errorData.error?.message || 'Unknown error'}`);
-    }
-    
-    const data = await response.json();
-    const generatedContent = data.choices[0].message.content;
+    const generatedContent = completion;
     
     // Add assistant response to conversation history
     conversationHistories[convId].push({ role: 'assistant', content: generatedContent });
@@ -103,12 +131,9 @@ export async function generateEmailContent(
         position: "replace"
       }];
     } else {
-      // Format email content
-      const formattedContent = formatEmailContent(generatedContent, prompt, recipients);
-      
       return [{
         id: "email-" + Date.now(),
-        content: formattedContent,
+        content: generatedContent,
         type: "email",
         position: "replace"
       }];
@@ -118,23 +143,6 @@ export async function generateEmailContent(
     throw error;
   }
 }
-
-function formatEmailContent(content: string, prompt: string, recipients?: string[]): string {
-  // Remove any "Subject:" line at the beginning
-  let formattedContent = content
-    .replace(/^Subject:.*?(\n|$)/i, '')
-    .replace(/^\*\*Subject:.*?\*\*(\n|$)/i, '');
-  
-  // Clean up the content
-  formattedContent = formattedContent.trimStart()
-    .replace(/\r\n/g, '\n')
-    .replace(/\n{3,}/g, '\n\n')
-    .split('\n').map(line => line.trimRight()).join('\n')
-    .trim();
-  
-  return formattedContent;
-}
-
 
 function checkIfQuestion(prompt: string): boolean {
   const trimmedPrompt = prompt.trim().toLowerCase();
@@ -150,4 +158,4 @@ function checkIfQuestion(prompt: string): boolean {
   ];
   
   return questionStarters.some(starter => trimmedPrompt.startsWith(starter));
-} 
+}

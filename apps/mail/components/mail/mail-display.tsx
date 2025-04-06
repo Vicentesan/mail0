@@ -92,7 +92,7 @@ type Props = {
 };
 
 const MailDisplay = ({ emailData, isMuted, index, totalEmails, demo }: Props) => {
-  const [isCollapsed, setIsCollapsed] = useState<boolean>(true);
+  const [isCollapsed, setIsCollapsed] = useState<boolean>(false);
   const [unsubscribed, setUnsubscribed] = useState(false);
   const [isUnsubscribing, setIsUnsubscribing] = useState(false);
   const [selectedAttachment, setSelectedAttachment] = useState<null | {
@@ -114,16 +114,20 @@ const MailDisplay = ({ emailData, isMuted, index, totalEmails, demo }: Props) =>
     : useSummary(emailData.id);
 
   useEffect(() => {
-    if (totalEmails && index === totalEmails - 1) {
-      setIsCollapsed(false);
-      if (totalEmails > 5) {
-        setTimeout(() => {
-          const element = document.getElementById(`mail-${emailData.id}`);
-          element?.scrollIntoView({ behavior: 'smooth' });
-        }, 100);
+    if (!demo) {
+      if (totalEmails && index === totalEmails - 1) {
+        setIsCollapsed(false);
+        if (totalEmails > 5) {
+          setTimeout(() => {
+            const element = document.getElementById(`mail-${emailData.id}`);
+            element?.scrollIntoView({ behavior: 'smooth' });
+          }, 100);
+        }
+      } else {
+        setIsCollapsed(true);
       }
     }
-  }, [index, emailData.id, totalEmails]);
+  }, [index, emailData.id, totalEmails, demo]);
 
   const listUnsubscribeAction = useMemo(
     () =>
