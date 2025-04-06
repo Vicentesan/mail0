@@ -104,7 +104,7 @@ export async function generateEmailContent(
     try {
       embeddings = await createEmbeddings(embeddingTexts);
     } catch (embeddingError) {
-      // Continue without embeddings if there's an error
+      console.error(embeddingError)
     }
     
     // Make API call using the ai function
@@ -131,12 +131,9 @@ export async function generateEmailContent(
         position: "replace"
       }];
     } else {
-      // Format email content
-      const formattedContent = await formatEmailContent(generatedContent, prompt, recipients);
-      
       return [{
         id: "email-" + Date.now(),
-        content: formattedContent,
+        content: generatedContent,
         type: "email",
         position: "replace"
       }];
@@ -145,25 +142,6 @@ export async function generateEmailContent(
     console.error("Error generating email content:", error);
     throw error;
   }
-}
-
-async function formatEmailContent(content: string, prompt: string, recipients?: string[]): Promise<string> {
-  // Remove any "Subject:" line at the beginning
-  let formattedContent = content
-    .replace(/^Subject:.*?(\n|$)/i, '')
-    .replace(/^\*\*Subject:.*?\*\*(\n|$)/i, '');
-  
-  // Clean up the content
-  formattedContent = formattedContent.trimStart()
-    .replace(/\r\n/g, '\n')
-    .replace(/\n{3,}/g, '\n\n')
-    .split('\n').map(line => line.trimRight()).join('\n')
-    .trim();
-
-  // Fixed bug: was using formatEmailContent.toString() instead of formattedContent
-  formattedContent = (await extractTextFromHTML(formattedContent)).trim()
-  
-  return formattedContent;
 }
 
 function checkIfQuestion(prompt: string): boolean {

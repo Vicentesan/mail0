@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { OpenAIEmbeddings } from "@langchain/openai";
 
 export const groqChatCompletionSchema = z.object({
   id: z.string(),
@@ -66,12 +67,21 @@ const MODEL_MAPPING: Record<string, string> = {
   'gpt-4-turbo': GROQ_MODELS.LLAMA_70B
 };
 
+// Define available OpenAI models for embeddings
+export const EMBEDDING_MODELS = {
+  SMALL: 'text-embedding-3-small',
+  LARGE: 'text-embedding-3-large',
+} as const;
+
+// Default embedding model
+const DEFAULT_EMBEDDING_MODEL = EMBEDDING_MODELS.SMALL;
+
 /**
- * Creates embeddings for text input
+ * Creates embeddings for text input using OpenAI's embedding API
  */
-export async function createEmbedding(text: string, model: string = GROQ_MODELS.LLAMA_8B) {
-  if (!process.env.GROQ_API_KEY) {
-    throw new Error('Groq API key is not configured');
+export async function createEmbedding(text: string, model: string = DEFAULT_EMBEDDING_MODEL) {
+  if (!process.env.OPENAI_API_KEY) {
+    throw new Error('OpenAI API key is not configured');
   }
 
   if (!text || text.trim() === '') {
@@ -79,70 +89,89 @@ export async function createEmbedding(text: string, model: string = GROQ_MODELS.
   }
 
   try {
-    // Make the API request
-    const response = await fetch('https://api.groq.com/v1/embeddings', {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        'Authorization': `Bearer ${process.env.GROQ_API_KEY}`
-      },
-      body: JSON.stringify({
-        model,
-        input: text
-      })
+    // Initialize OpenAI Embeddings
+    const embeddings = new OpenAIEmbeddings({
+      openAIApiKey: process.env.OPENAI_API_KEY,
+      modelName: model,
+      dimensions: model === EMBEDDING_MODELS.SMALL ? 1536 : 3072 // Set dimensions based on model
     });
 
-    // Handle HTTP errors
-    if (!response.ok) {
-      const errorText = await response.text();
-      throw new Error(`Embedding API HTTP error: ${response.status} ${response.statusText} - ${errorText}`);
-    }
-
-    // Parse the JSON response
-    let data;
-    try {
-      data = await response.json();
-    } catch (jsonError) {
-      throw new Error(`Failed to parse embedding API response: ${jsonError}`);
-    }
-
-    // Validate the response against our schema
-    try {
-      const validatedData = groqEmbeddingSchema.parse(data);
-      
-      // Check if we have embedding data
-      if (!validatedData.data || validatedData.data.length === 0) {
-        throw new Error('No embedding data returned from API');
-      }
-      
-      // Return the embedding
-      return validatedData.data[0]?.embedding || [];
-    } catch (validationError) {
-      throw new Error(`Invalid embedding API response: ${validationError}`);
-    }
+    // Get the embedding for the text
+    const embeddingResult = await embeddings.embedQuery(text);
+    
+    return embeddingResult;
   } catch (error) {
-    console.error('Embedding API error:', error);
-    throw error;
+    console.error('Embedding error:', error);
+    throw error instanceof Error ? error : new Error(String(error));
   }
 }
 
 /**
  * Creates embeddings for multiple text inputs
  */
-export async function createEmbeddings(texts: Record<string, string>, model: string = GROQ_MODELS.LLAMA_8B) {
-  const embeddings: Record<string, number[]> = {};
+export async function createEmbeddings(texts: Record<string, string>, model: string = DEFAULT_EMBEDDING_MODEL) {
+  if (!process.env.OPENAI_API_KEY) {
+    throw new Error('OpenAI API key is not configured');
+  }
+  
+  // Initialize OpenAI Embeddings
+  const embeddings = new OpenAIEmbeddings({
+    openAIApiKey: process.env.OPENAI_API_KEY,
+    modelName: model,
+    dimensions: model === EMBEDDING_MODELS.SMALL ? 1536 : 3072
+  });
+  
+  const embeddingsResult: Record<string, number[]> = {};
 
+  // Process each text input
   for (const [key, text] of Object.entries(texts)) {
     if (!text || text.trim() === '') continue;
     
     try {
-      embeddings[key] = await createEmbedding(text, model);
+      embeddingsResult[key] = await embeddings.embedQuery(text);
     } catch (error) {
       console.error(`Error creating embedding for ${key}:`, error);
     }
   }
   
-  return embeddings;
+  return embeddingsResult;
+}
+
+/**
+ * Creates embeddings for multiple text inputs in a single API call
+ */
+export async function createEmbeddingsBatch(texts: string[], model: string = DEFAULT_EMBEDDING_MODEL): Promise<number[][]> {
+  if (!process.env.OPENAI_API_KEY) {
+    throw new Error('OpenAI API key is not configured');
+  }
+
+  if (!texts.length) {
+    return [];
+  }
+  
+  // Filter out empty texts
+  const validTexts = texts.filter(text => text && text.trim() !== '');
+  
+  if (!validTexts.length) {
+    return [];
+  }
+  
+  try {
+    // Initialize OpenAI Embeddings
+    const embeddings = new OpenAIEmbeddings({
+      openAIApiKey: process.env.OPENAI_API_KEY,
+      modelName: model,
+      dimensions: model === EMBEDDING_MODELS.SMALL ? 1536 : 3072
+    });
+
+    // Get embeddings for all texts in a single batch request
+    const embeddingResults = await embeddings.embedDocuments(validTexts);
+    
+    return embeddingResults;
+  } catch (error) {
+    console.error('Batch embedding error:', error);
+    throw error instanceof Error ? error : new Error(String(error));
+  }
 }
 
 // Define model type to allow any string (developer's choice)
@@ -165,31 +194,89 @@ interface GroqRequestBody {
   [key: string]: any; // Allow additional properties
 }
 
+/**
+ * Generates text completions using Groq API
+ */
 export async function generateCompletions({ 
   model, 
   prompt, 
   systemPrompt, 
   temperature, 
   max_tokens,
-  embeddings 
+  embeddings // We'll incorporate embeddings into the prompt
 }: CompletionsParams) {
   if (!process.env.GROQ_API_KEY) 
     throw new Error('Groq API Key is missing');
 
   // Map OpenAI model names to Groq equivalents if needed
   const groqModel = MODEL_MAPPING[model] || model;
+  
+  // If we have embeddings, incorporate them into the system prompt
+  let enhancedSystemPrompt = systemPrompt || '';
+  
+  if (embeddings && Object.keys(embeddings).length > 0) {
+    // Create a context section from the embeddings
+    const contextSection = Object.entries(embeddings)
+      .map(([key, value]) => {
+        // We don't use the actual vector values, just the content they represent
+        return `- ${key}`;
+      })
+      .join('\n');
+    
+    // Add the context to the system prompt
+    if (enhancedSystemPrompt) {
+      enhancedSystemPrompt = `${enhancedSystemPrompt}\n\nAdditional context for your reference:\n${contextSection}`;
+    } else {
+      enhancedSystemPrompt = `Use the following context to inform your response:\n${contextSection}`;
+    }
+  }
+  
+  // Enhance the system prompt for email generation to improve formatting
+  if (enhancedSystemPrompt.toLowerCase().includes('email')) {
+    enhancedSystemPrompt = process.env.EMAI_SYSTEM_PROMPT || `${enhancedSystemPrompt}
+
+CRITICAL FORMATTING INSTRUCTIONS - YOU MUST FOLLOW THESE EXACTLY:
+
+1. You MUST use proper paragraph spacing with a blank line between paragraphs
+2. You MUST NOT output literal "\\n" characters - use actual line breaks in your response
+3. You MUST format the email with this EXACT structure:
+   - Greeting (e.g., "Dear John,")
+   - BLANK LINE
+   - First paragraph
+   - BLANK LINE
+   - Second paragraph
+   - BLANK LINE
+   - (any additional paragraphs with blank lines between them)
+   - BLANK LINE
+   - Closing (e.g., "Best regards,")
+   - Line break
+   - Name/signature
+
+4. EXAMPLE OF REQUIRED FORMAT:
+Dear John,
+
+I hope this email finds you well. I wanted to discuss the project timeline.
+
+We need to schedule a meeting next week to review the progress. Would Tuesday at 2pm work for you?
+
+Best regards,
+Jane
+
+5. IMPORTANT: Every paragraph MUST be separated by a blank line
+6. IMPORTANT: There MUST be a blank line after the greeting and before the closing
+7. IMPORTANT: Do NOT include any explanatory text like "Here is the email:" - just write the email directly
+8. IMPORTANT: For sensitive topics like termination, maintain a professional, respectful tone
+
+YOUR RESPONSE MUST HAVE PROPER SPACING OR IT WILL BE REJECTED.`;
+  }
+  
   // Ensure we have valid messages
   const messages = [];
   
-  if (systemPrompt) {
+  if (enhancedSystemPrompt) {
     messages.push({
       role: 'system',
-      content: systemPrompt,
-    });
-  } else if (process.env.AI_SYSTEM_PROMPT) {
-    messages.push({
-      role: 'system',
-      content: process.env.AI_SYSTEM_PROMPT,
+      content: enhancedSystemPrompt,
     });
   }
 
@@ -202,7 +289,7 @@ export async function generateCompletions({
     // If no prompt is provided, add a minimal prompt to avoid API errors
     messages.push({
       role: 'user',
-      content: 'Please respond to this request.'
+      content: 'Please respond to this request with proper paragraph formatting.'
     });
   }
 
@@ -213,13 +300,6 @@ export async function generateCompletions({
     temperature,
     max_tokens,
   };
-
-  // Add embeddings if provided
-  if (embeddings && Object.keys(embeddings).length > 0) {
-    (requestBody as any).user_context = {
-      embeddings
-    };
-  }
 
   try {
     const response = await fetch('https://api.groq.com/openai/v1/chat/completions', {
@@ -240,20 +320,16 @@ export async function generateCompletions({
     
     try {
       const validatedData = groqChatCompletionSchema.parse(data);
-      const content = validatedData.choices[0]?.message.content || '';
       
-      // Only apply email-specific cleanup if the system prompt suggests email generation
-      const isEmailGeneration = systemPrompt?.toLowerCase().includes('email') || false;
-      const finalContent = isEmailGeneration ? cleanupEmailContent(content) : content;
-      
-      return { completion: finalContent };
+      // Get the content
+      let content = validatedData.choices[0]?.message.content || '';
+
+      return { completion: content };
     } catch (validationError) {
       // Fall back to using the raw response if validation fails
-      const content = data.choices[0]?.message.content || '';
-      const isEmailGeneration = systemPrompt?.toLowerCase().includes('email') || false;
-      const finalContent = isEmailGeneration ? cleanupEmailContent(content) : content;
+      let content = data.choices[0]?.message.content || '';
       
-      return { completion: finalContent };
+      return { completion: content };
     }
   } catch (error) {
     console.error('Groq API Call Error:', error);
@@ -280,39 +356,4 @@ export function truncateThreadContent(threadContent: string, maxTokens: number =
   }
 
   return truncatedContent ?? '';
-}
-
-// Function to clean up AI-generated email content
-export function cleanupEmailContent(content: string): string {
-  // Remove various forms of meta-text at the beginning
-  let cleanedContent = content
-    // Remove "Here is the email:" and variations
-    .replace(/^(Here is|Here's|Below is|Following is|This is|Attached is)( the| an| a)? (email|message|response|reply|draft):?.*?(\n|$)/i, '')
-    
-    // Remove any "Subject:" lines
-    .replace(/^Subject:.*?(\n|$)/i, '')
-    
-    // Remove any "Here's a draft..." or similar meta-text
-    .replace(/^Here's (a|an|the) (draft|template|example|email).*?(\n|$)/i, '')
-    
-    // Remove any explanatory text at the beginning
-    .replace(/^I've (created|written|prepared|drafted|composed).*?(\n|$)/i, '')
-    .replace(/^I (created|wrote|prepared|drafted|composed).*?(\n|$)/i, '')
-    .replace(/^As (requested|instructed|asked).*?(\n|$)/i, '')
-    .replace(/^Based on (your|the) (request|instructions).*?(\n|$)/i, '')
-    
-    // Remove any trailing instructions or explanations
-    .replace(/\n\nFeel free to.*$/i, '')
-    .replace(/\n\nLet me know if.*$/i, '')
-    .replace(/\n\nPlease (let me know|feel free).*$/i, '')
-    .replace(/\n\nHope this (helps|works).*$/i, '')
-    .replace(/\n\nIs there anything else.*$/i, '')
-    
-    // Remove placeholder text in brackets
-    .replace(/\[.*?\]/g, '');
-  
-  // Trim whitespace
-  cleanedContent = cleanedContent.trim();
-  
-  return cleanedContent;
 }
