@@ -77,7 +77,7 @@ export async function generateAIResponse(
   }
 
   // Use a more aggressive content reduction approach
-  const processedContent = extractEmailSummary(threadContent, 3000); // Reduced to 3000 tokens max
+  const processedContent = await extractEmailSummary(threadContent, 3000); // Reduced to 3000 tokens max
 
   // Create the system message
   const systemPrompt = `You are an email assistant helping ${session.user.name} write professional and concise email replies.
